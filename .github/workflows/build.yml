@@ -1,0 +1,68 @@
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    types: [synchronize]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@main
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/wrapper-validation-action@main
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@main
+        with:
+          distribution: "temurin"
+          java-version: 21
+          check-latest: true
+
+      - name: Cache Gradle Dependencies
+        uses: actions/cache@main
+        with:
+          path: ~/.gradle/caches/
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/build.gradle') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Set timezone to Ho Chi Minh City
+        run: |
+          sudo ln -sf /usr/share/zoneinfo/Asia/Ho_Chi_Minh /etc/localtime
+          sudo dpkg-reconfigure -f noninteractive tzdata
+
+      - name: Build with Gradle
+        run: |
+          chmod +x ./gradlew
+          ./gradlew build
+          find . -type f -name "*.jar"
+
+      - name: Get formatted timestamp and repo name
+        id: timestamp
+        run: |
+          formatted_time=$(date +"%H%M_%d%m%Y" -d "now")
+          echo "formatted_time=$formatted_time" >> $GITHUB_OUTPUT
+          echo "repo_name=$(echo ${{ github.repository }} | cut -d'/' -f2)" >> $GITHUB_OUTPUT
+
+      - name: Upload plugin artifact
+        uses: actions/upload-artifact@main
+        if: success()
+        with:
+          name: ${{ steps.timestamp.outputs.repo_name }}
+          path: target/*.jar
+
+      - name: Automatic release
+        if: success()
+        uses: marvinpinto/action-automatic-releases@latest
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          automatic_release_tag: ${{ steps.timestamp.outputs.formatted_time }}
+          prerelease: false
+          title: "${{ steps.timestamp.outputs.repo_name }} Release at ${{ steps.timestamp.outputs.formatted_time }}"
+          files: |
+            target/*.jar
